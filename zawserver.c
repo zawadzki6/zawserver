@@ -50,7 +50,7 @@ char* type(char* ext);
 
 int sock, client_fd, opened_fd;
 FILE* fp = NULL;
-char buffer[256] = {0};
+char buffer[256] = {};
 unsigned int port = 8080;
 bool validPort = false;
 
@@ -117,7 +117,7 @@ int main(int argc, char* argv[]) {
 	print_log(0, "incoming request");
 
 	errno = 0;
-	char buffer[256] = {0};
+	char buffer[256] = {};
 	recv(client_fd, buffer, 256, 0);
 	
 	if (errno == 104) {
@@ -132,6 +132,7 @@ int main(int argc, char* argv[]) {
 	    print_log(1, "connection closed");
 	    continue;
 	}
+	if (buffer[255]) print_log(2, "buffer reached limit - something may have been cut off");
 
 	/* GET file.txt ... */
 	char* file = buffer + 5;
@@ -139,21 +140,35 @@ int main(int argc, char* argv[]) {
 
 	char* ext = strrchr(file, '.') + 1;
 	if (DEV) if (ext) printf("found extension: %s\n", ext);
+	if (ext) print_log(0, "found extension");
+
 
 	print_log(0, buffer);
-
 	int opened_fd = open(file, O_RDONLY);
-
+	
+	errno = 0;
 	FILE* fp = fopen(file, "r");
+	
+	if (errno != 0) {
+	    print_log(3, "file not found");
+	    send(client_fd, "HTTP/1.1 404 Not Found\r\n", 24, 0);
+	    print_log(1, "sent response (404 Not Found)");
+	    /* fclose(fp); */
+	    close(opened_fd);
+	    close(client_fd);
+	    print_log(0, "closed connection");
+	    continue;
+	} 
+
 	struct stat st;
 	stat(file, &st);
 	unsigned int length = st.st_size;
 
 	char guhhhh[16];
 	sprintf(guhhhh, "%d", length);
-		
-        char header[] = "HTTP/1.1 200 OK\r\n""Content-Type: text/raw\r\n""Content-Length: ";
-	if (strcmp(ext, ".html")) { char header[] = "HTTP/1.1 200 OK\r\n""Content-Type: text/html\r\n""Content-Length: "; }
+
+        char header[] = "HTTP/1.1 200 OK\r\n""Content-Type: text/html\r\n""Content-Length: ";
+	if (!strcmp(ext, "html")) { char header[] = "HTTP/1.1 200 OK\r\n""Content-Type: text/raw\r\n""Content-Length: "; }
 
         strcat(header, guhhhh);
         strcat(header, "\r\n""Connection: close\r\n""\r\n");
@@ -231,3 +246,4 @@ void print_log(const unsigned short int t, const char* str) {
 	case 3:	printf("[%s   FAIL   %s] %s\n", ANSI_COLOR_RED, ANSI_COLOR_RESET, str); break;
     }
 }
+
