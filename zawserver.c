@@ -11,7 +11,6 @@
 #include <sys/stat.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <ctype.h>
 #include <stdbool.h>
 
 #define ANSI_COLOR_RED     "\x1b[31m"
@@ -51,7 +50,7 @@ char* type(char* ext);
 int sock, client_fd, opened_fd;
 FILE* fp = NULL;
 char buffer[256] = {};
-unsigned int port = 8080;
+int port = 8080;
 bool validPort = false;
 
 int main(int argc, char* argv[]) {
@@ -81,10 +80,7 @@ int main(int argc, char* argv[]) {
 	    return 0;
 	}
 	else {
-	    bool validPort = true;
-	    for (int i = 0; argv[1][i] != '\0'; i++) {
-	        if (!isdigit(argv[1][i])) validPort = false;
-	    }
+	    if (atoi(argv[1]) != 0) validPort = true;
 	    if (!validPort) { print_log(3, "invalid argument"); return 4; }
 	}
     }
@@ -93,14 +89,13 @@ int main(int argc, char* argv[]) {
 
     if (validPort) {
 	dbg_print("argument is digits!!");
-    	port = atoi(argv[1]);
-	if (DEV) printf("port: %d\n", port);
+	port = atoi(argv[1]);
     	print_log(1, "set custom port");
-        }
+    }
     else print_log(0, "using default port (8080)");
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
-   
+
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
