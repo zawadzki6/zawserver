@@ -21,7 +21,7 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-#define VERSION "infdev_git-refactor"
+#define VERSION "infdev"
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
@@ -127,7 +127,7 @@ int main(int argc, char* argv[]) {
 	    print_log(1, "connection closed");
 	    continue;
 	}
-	if (buffer[255]) print_log(2, "buffer reached limit - something may have been cut off");
+	/* if (buffer[255]) print_log(2, "buffer[255] is not null / reached limit - something may have been cut off"); */
 
 	/* GET file.txt ... */
 	char* file = buffer + 5;
