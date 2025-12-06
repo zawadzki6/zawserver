@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include "types.h"
 
 #define ANSI_COLOR_RED     "\x1b[31m"
 #define ANSI_COLOR_GREEN   "\x1b[32m"
@@ -46,6 +47,7 @@ void sigpipe_handler(int s);
 void dump();
 void quit(int c);
 char* type(char* ext);
+const char* get_type(const char* ext);
 
 int sock, client_fd, opened_fd;
 FILE* fp = NULL;
@@ -133,9 +135,10 @@ int main(int argc, char* argv[]) {
 	char* file = buffer + 5;
 	*strchr(file, ' ') = 0;
 
-	char* ext = strrchr(file, '.') + 1;
+	char* ext = strrchr(file, '.') + 1 ;
 	if (DEV) if (ext) printf("found extension: %s\n", ext);
 	if (ext) print_log(0, "found extension");
+	if (!ext) { print_log(2, "extension is null"); ext = ""; }
 
 
 	print_log(0, buffer);
@@ -162,14 +165,22 @@ int main(int argc, char* argv[]) {
 	char guhhhh[16];
 	sprintf(guhhhh, "%d", length);
 
+	/*
         char header[] = "HTTP/1.1 200 OK\r\n""Content-Type: text/html\r\n""Content-Length: ";
 	if (!strcmp(ext, "html")) { char header[] = "HTTP/1.1 200 OK\r\n""Content-Type: text/raw\r\n""Content-Length: "; }
+	*/
 
-        strcat(header, guhhhh);
-        strcat(header, "\r\n""Connection: close\r\n""\r\n");
+	char header2[] = "HTTP/1.1 200 OK\r\n""Content-Type: ";
+	strcat(header2, get_type(ext));
+	strcat(header2, "\r\n""Content-Length: ");
+	strcat(header2, guhhhh);
+	strcat(header2, "\r\n""Connection: close\r\n""\r\n");
 
-	print_log(0, header);
-	send(client_fd, header, strlen(header), 0);
+        /* strcat(header, guhhhh);
+        strcat(header, "\r\n""Connection: close\r\n""\r\n"); */
+
+	print_log(0, header2);
+	send(client_fd, header2, strlen(header2), 0);
 
 	sendfile(client_fd, opened_fd, 0, length);
 	print_log(1, "sent response");
@@ -242,3 +253,10 @@ void print_log(const unsigned short int t, const char* str) {
     }
 }
 
+const char* get_type(const char* ext) {
+    for (int i = 0; i < types_amount; i++) {
+	if (strcmp(media[i].ext, ext) == 0)
+	    return media[i].type;
+    }
+    return media[0].type;
+}
