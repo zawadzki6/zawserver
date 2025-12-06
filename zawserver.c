@@ -90,8 +90,9 @@ int main(int argc, char* argv[]) {
     print_log(0, "To quit press \x1b[32mCtrl+C\x1b[0m\n");
 
     if (validPort) {
+	const int port_fix = atoi(argv[1]);
 	dbg_print("argument is digits!!");
-	port = atoi(argv[1]);
+	port = port_fix;
     	print_log(1, "set custom port");
     }
     else print_log(0, "using default port (8080)");
