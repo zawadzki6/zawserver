@@ -27,15 +27,17 @@
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
    DUMP prints variables on crash
-   DEV is to be used for extra debug logs (only in devel) */
+   DEV is to be used for extra debug logs (only in devel) 
+   HEAD displays headers */
 bool DEBUG = true;
 bool SILENT = false;
 bool DUMP = true;
-bool DEV = true;
+bool DEV = false;
+bool HEAD = false;
 
 /* ROADMAP ***
  basic GET functionality - done
- GET file mime types - in devel
+ GET file mime types - done
  POST requests - soon(tm) */
 
 void print_log(const unsigned short int t, const char* str);
@@ -51,7 +53,7 @@ const char* get_type(const char* ext);
 
 int sock, client_fd, opened_fd;
 FILE* fp = NULL;
-char buffer[256] = {};
+char buffer[512] = {};
 int port = 8080;
 bool validPort = false;
 
@@ -115,8 +117,8 @@ int main(int argc, char* argv[]) {
 	print_log(0, "incoming request");
 
 	errno = 0;
-	char buffer[256] = {};
-	recv(client_fd, buffer, 256, 0);
+	char buffer[512] = {};
+	recv(client_fd, buffer, 512, 0);
 	
 	if (errno == 104) {
 	    print_log(0, "connection reset by peer");
@@ -130,7 +132,12 @@ int main(int argc, char* argv[]) {
 	    print_log(1, "connection closed");
 	    continue;
 	}
-	/* if (buffer[255]) print_log(2, "buffer[255] is not null / reached limit - something may have been cut off"); */
+	if (buffer[511] > 0) {
+	    print_log(2, "buffer reached limit");
+	    print_log(0, "request will segfault. closing connection");
+	    close(client_fd);
+	    continue;
+	}
 
 	/* GET file.txt ... */
 	char* file = buffer + 5;
@@ -142,7 +149,7 @@ int main(int argc, char* argv[]) {
 	if (!ext) { print_log(2, "extension is null"); ext = ""; }
 
 
-	print_log(0, buffer);
+	if (HEAD) print_log(0, buffer);
 	int opened_fd = open(file, O_RDONLY);
 	
 	errno = 0;
@@ -166,21 +173,13 @@ int main(int argc, char* argv[]) {
 	char guhhhh[16];
 	sprintf(guhhhh, "%d", length);
 
-	/*
-        char header[] = "HTTP/1.1 200 OK\r\n""Content-Type: text/html\r\n""Content-Length: ";
-	if (!strcmp(ext, "html")) { char header[] = "HTTP/1.1 200 OK\r\n""Content-Type: text/raw\r\n""Content-Length: "; }
-	*/
-
 	char header2[] = "HTTP/1.1 200 OK\r\n""Content-Type: ";
 	strcat(header2, get_type(ext));
 	strcat(header2, "\r\n""Content-Length: ");
 	strcat(header2, guhhhh);
 	strcat(header2, "\r\n""Connection: close\r\n""\r\n");
 
-        /* strcat(header, guhhhh);
-        strcat(header, "\r\n""Connection: close\r\n""\r\n"); */
-
-	print_log(0, header2);
+	if (HEAD) print_log(0, header2);
 	send(client_fd, header2, strlen(header2), 0);
 
 	sendfile(client_fd, opened_fd, 0, length);
@@ -255,7 +254,8 @@ void print_log(const unsigned short int t, const char* str) {
 }
 
 const char* get_type(const char* ext) {
-    for (int i = 0; i < types_amount; i++) {
+    int i;
+    for (i = 0; i < types_amount; i++) {
 	if (strcmp(media[i].ext, ext) == 0)
 	    return media[i].type;
     }
