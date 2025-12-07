@@ -33,7 +33,7 @@ bool DEBUG = true;
 bool SILENT = false;
 bool DUMP = true;
 bool DEV = false;
-bool HEAD = false;
+bool HEAD = true;
 
 /* ROADMAP ***
  basic GET functionality - done
@@ -134,12 +134,22 @@ int main(int argc, char* argv[]) {
 	}
 	if (buffer[511] > 0) {
 	    print_log(2, "buffer reached limit");
-	    print_log(0, "request will segfault. closing connection");
+	    send(client_fd, "431 Request Header Fields Too Large\r\n", 40, 0);
+	    print_log(0, "sent response (431 Request Header Fields Too Large)");
+	    close(client_fd);
+	    continue;
+	}
+
+	if (strncmp(buffer, "POST", 4) == 0) {
+	    print_log(2, "received a POST request");
+	    print_log(0, "throwing 501 Not Implemented");
+	    send(client_fd, "501 Not Implemented\r\n", 24, 0);
 	    close(client_fd);
 	    continue;
 	}
 
 	/* GET file.txt ... */
+	if (HEAD) print_log(0, buffer);
 	char* file = buffer + 5;
 	*strchr(file, ' ') = 0;
 
@@ -149,7 +159,6 @@ int main(int argc, char* argv[]) {
 	if (!ext) { print_log(2, "extension is null"); ext = ""; }
 
 
-	if (HEAD) print_log(0, buffer);
 	int opened_fd = open(file, O_RDONLY);
 	
 	errno = 0;
@@ -202,8 +211,8 @@ void segfault_handler(int s) {
     dbg_print("caught SIGSEGV\a");
     print_log(3, "error - segmentation fault");
     if (DUMP) dump();
-    /* quit(1); */
-    abort();
+    quit(134);
+    /* abort(); */
 }
 
 void dump() {
@@ -219,9 +228,8 @@ void dump() {
 void quit(int c) {
     print_log(0, "shutting down");
     if (fp != NULL) fclose(fp);
-    close(opened_fd);
-    close(client_fd);
     shutdown(sock, SHUT_RDWR);
+    close(client_fd);
     print_log(1, "quitting");
     exit(c);
 }
