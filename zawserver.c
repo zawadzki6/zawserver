@@ -200,7 +200,7 @@ int main(int argc, char* argv[]) {
 	FILE* fp = fopen(file, "r");
 	
 	if (errno != 0) {
-	    print_log(3, "file not found");
+	    print_log(3, "file not found\n");
 	    send(client_fd, "HTTP/1.1 404 Not Found\r\n", 24, 0);
 	    print_log(1, "sent response (404 Not Found)\n");
 	    /* fclose(fp); */
