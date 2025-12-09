@@ -52,7 +52,6 @@ void sigterm_handler(int s);
 void sigpipe_handler(int s);
 void dump();
 void quit(int c);
-char* type(char* ext);
 const char* get_type(const char* ext);
 
 int sock, client_fd, opened_fd;
