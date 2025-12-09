@@ -262,7 +262,7 @@ void dump() {
 }
 
 void quit(int c) {
-    print_log(0, "shutting down");
+    print_log(0, "shutting down\n");
     if (fp != NULL) fclose(fp);
     shutdown(sock, SHUT_RDWR);
     close(client_fd);
