@@ -25,7 +25,7 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-#define VERSION "infdev_2.1"
+#define VERSION "infdev_2.2"
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
@@ -34,7 +34,7 @@
    HEAD displays headers */
 bool DEBUG = false;
 bool SILENT = false;
-bool DUMP = true;
+bool DUMP = false;
 bool DEV = false;
 bool HEAD = true;
 bool RECV = false;
@@ -188,8 +188,8 @@ int main(int argc, char* argv[]) {
 	if (DEV) printf("errno: %d\n", errno);
 	char* file = buffer + 5;
 	*strchr(file, ' ') = 0;
+	if (DEV) printf("errno: %d\n", errno);
 
-	errno = 0;
 	struct stat path;
 	stat(file, &path);
 	if (!S_ISREG(path.st_mode)) {		/*  <- see inode(7) */
@@ -203,12 +203,22 @@ int main(int argc, char* argv[]) {
 	if (DEV) printf("errno: %d\n", errno);
 
 	 
-	errno = 0;
 	char* ext = strrchr(file, '.') + 1 ;
 	if (strcmp(ext, "\0") == 0) { print_log(2, "extension is null\n"); ext = NULL; }
 	if (DEV) if (ext) printf("found extension: %s\n", ext);
 	if (ext) print_log(0, "found extension\n");
 	if (DEV) printf("errno: %d\n", errno);
+
+	if (errno == 2) {
+	    dbg_print("we have stopped yet another segfault probably from an i/o error. let's return 404\n");
+	    print_log(3, "i/o error\n");
+	    print_log(0, "throwing 404 Not Found\n");
+	    send(client_fd, "HTTP/1.1 404 Not Found\r\n", 24, 0);
+	    close(opened_fd);
+	    close(client_fd);
+	    print_log(1, "connection closed\n");
+	    continue;
+	}
 
 
 	int opened_fd = open(file, O_RDONLY);
@@ -217,6 +227,16 @@ int main(int argc, char* argv[]) {
 	
 	errno = 0;
 	FILE* fp = fopen(file, "r");
+	if (fp == NULL) {
+	    dbg_print("file is null!!\n");
+	    print_log(3, "failed to open file\n");
+	    print_log(0, "throwing 500 Internal Server Error\n");
+	    send(client_fd, "HTTP/1.1 500 Internal Server Error\r\n", 36, 0);
+	    close(opened_fd);
+	    close(client_fd);
+	    print_log(1, "connection closed\n");
+	    continue;
+	}
 	dbg_print("opened file\n");
 	
 	if (errno != 0) {
@@ -261,12 +281,13 @@ int main(int argc, char* argv[]) {
 
 
 void sigint_handler(int s) {
+    putchar('\n');
     dbg_print("caught SIGINT\n");
     quit(0);
 }
 
 void segfault_handler(int s) {
-    dbg_print("caught SIGSEGV\a");
+    dbg_print("caught SIGSEGV\n");
     print_log(3, "error - segmentation fault\n");
     if (RECV) main(1, argvv);
     if (DUMP) dump();
@@ -277,11 +298,10 @@ void segfault_handler(int s) {
 void dump() {
     print_log(0, "dumping variables\n");
     printf("errno: %d\n", errno);
-    printf("fp: ");
-    int bf;
-    if (fp != NULL) while ((bf = (fgetc(fp))) != EOF) { putchar(bf); }
-    putchar('\n');
+    printf("fp: %s\n", fp == NULL ? "NULL" : "valid(?)");
     printf("sock: %d\nclient_fd: %d\nopened_fd: %d\n", sock, client_fd, opened_fd);
+    printf("port: %d\n", port);
+    printf("validPort: %s\n", validPort ? "true" : "false");
 }
 
 void quit(int c) {
