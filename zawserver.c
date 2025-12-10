@@ -25,7 +25,7 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-#define VERSION "infdev2"
+#define VERSION "infdev_2.1"
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
@@ -42,6 +42,10 @@ bool RECV = false;
 /* ROADMAP ***
  basic GET functionality - done
  GET file mime types - done
+ common redirects
+ config file
+ more customisability
+ logging rework
  POST requests - soon(tm) */
 
 void print_log(const unsigned short int t, const char* str);
@@ -59,7 +63,7 @@ FILE* fp = NULL;
 char buffer[1024] = {};
 int port = 8080;
 bool validPort = false;
-char* argvv[1];
+char* argvv[1]; /* for RECV */
 
 int main(int argc, char* argv[]) {
     signal(SIGSEGV, segfault_handler);
@@ -72,9 +76,13 @@ int main(int argc, char* argv[]) {
 	const char* argument = argv[1];
 	if (strcmp(argument, "-s") == 0) { SILENT = true; dbg_print("silent mode enabled !!\n"); }
 	else if (strcmp(argument, "-d") == 0) { DEBUG = true; dbg_print("debug enabled !!\n"); }
-	else if (strcmp(argument, "-v") == 0) { printf("%s\n", VERSION); return 0; }
+	else if (strcmp(argument, "-v") == 0) {
+	    printf("%sZAWServer%s %s\n", ANSI_COLOR_CYAN, ANSI_COLOR_RESET, VERSION); 
+	    printf("%s compiled on %s %s\n", __FILE__, __DATE__, __TIME__);
+	    return 0;
+	}
 	else if (strcmp(argument, "-f") == 0) {
-	    printf("%sZAWServer%s %s\n", ANSI_COLOR_CYAN, ANSI_COLOR_RESET, VERSION);
+	    printf("%sZAWServer%s\n", ANSI_COLOR_CYAN, ANSI_COLOR_RESET);
 	    print_log(0, "this is a log\n");
 	    print_log(1, "this is a success\n");
 	    print_log(2, "this is a warning\n");
@@ -98,7 +106,7 @@ int main(int argc, char* argv[]) {
 
     if (validPort) {
 	const int port_fix = atoi(argv[1]);
-	dbg_print("argument is digits!!");
+	dbg_print("argument is digits!!\n");
 	port = port_fix;
     }
      
@@ -112,7 +120,7 @@ int main(int argc, char* argv[]) {
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = 0;
 
-    dbg_print("initialized socket");
+    dbg_print("initialized socket\n");
     int b = bind(sock, (struct sockaddr*)&addr, sizeof(addr));
 
     print_log(0, "starting server\n");
@@ -120,8 +128,9 @@ int main(int argc, char* argv[]) {
 
     while (1) {
 	int client_fd = accept(sock, 0, 0);
-	getpeername(client_fd, (struct sockaddr*)&addr, 0);
 
+	socklen_t addr_len = sizeof(addr);
+	getpeername(client_fd, (struct sockaddr*)&addr, &addr_len);
 	struct sockaddr_in* peer = (struct sockaddr_in*)&addr;
 	struct in_addr peer_addr = peer->sin_addr;
 	char peer_name[INET_ADDRSTRLEN];
@@ -135,9 +144,10 @@ int main(int argc, char* argv[]) {
 	recv(client_fd, buffer, 1024, 0);
 
 	/* GET file.txt ... */
-	if (HEAD) { print_log(0, "recieved buffer\n"); printf("%s", buffer); }
+	if (HEAD) { print_log(0, "recieved buffer\n"); printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", buffer); }
 	
 
+	if (DEV) printf("errno: %d\n", errno);
 	if (errno == 104) {
 	    print_log(0, "connection reset by peer\n");
 	    close(client_fd);
@@ -145,12 +155,15 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 	
+	if (DEV) printf("errno: %d\n", errno);
 	if ((buffer[0] = 0)) {
 	    print_log(2, "buffer empty\n");
 	    close(client_fd);
 	    print_log(1, "connection closed\n");
 	    continue;
 	}
+
+	if (DEV) printf("errno: %d\n", errno);
 	if (buffer[1023] > 0) {
 	    print_log(2, "buffer reached limit\n");
 	    send(client_fd, "HTTP/1.1 431 Request Header Fields Too Large\r\n", 46, 0);
@@ -160,6 +173,7 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
+	if (DEV) printf("errno: %d\n", errno);
 	/* according to man pages, strcnmp returns 0 if strings are equal
 	   so why the fuck is this oppositve here? */
 	if (strncmp(buffer, "GET", 4) == 0 || !isalnum(buffer[1])) {
@@ -171,6 +185,7 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
+	if (DEV) printf("errno: %d\n", errno);
 	char* file = buffer + 5;
 	*strchr(file, ' ') = 0;
 
@@ -185,19 +200,24 @@ int main(int argc, char* argv[]) {
 	    print_log(1, "connection closed\n");
 	    continue;
 	}
+	if (DEV) printf("errno: %d\n", errno);
 
 	 
+	errno = 0;
 	char* ext = strrchr(file, '.') + 1 ;
 	if (strcmp(ext, "\0") == 0) { print_log(2, "extension is null\n"); ext = NULL; }
 	if (DEV) if (ext) printf("found extension: %s\n", ext);
 	if (ext) print_log(0, "found extension\n");
-	
+	if (DEV) printf("errno: %d\n", errno);
 
 
 	int opened_fd = open(file, O_RDONLY);
+	dbg_print("opened file descriptor\n");
+	if (DEV) printf("errno: %d\n", errno);
 	
 	errno = 0;
 	FILE* fp = fopen(file, "r");
+	dbg_print("opened file\n");
 	
 	if (errno != 0) {
 	    print_log(3, "file not found\n");
@@ -223,11 +243,14 @@ int main(int argc, char* argv[]) {
 	strcat(header2, guhhhh);
 	strcat(header2, "\r\n""Connection: close\r\n""\r\n");
 
-	if (HEAD) printf("%s", header2);
+	print_log(0, "formed response header\n");
+	if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", header2);
 	send(client_fd, header2, strlen(header2), 0);
+	print_log(1, "sent header\n");
 
+	print_log(0, "sending data now\n");
 	sendfile(client_fd, opened_fd, 0, length);
-	print_log(1, "sent response\n");
+	print_log(1, "finished uploading\n");
 
 	fclose(fp);
 	close(opened_fd);
@@ -298,6 +321,8 @@ void print_log(const unsigned short int t, const char* str) {
 }
 
 const char* get_type(const char* ext) {
+    if (ext == NULL) return media[0].type;
+
     int i;
     for (i = 0; i < types_amount; i++) {
 	if (strcmp(media[i].ext, ext) == 0)
