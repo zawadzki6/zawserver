@@ -86,9 +86,7 @@ const list media[] = {
     {"zip", "application/zip"},
     {"3gp", "video/3gpp"}, /* audio/3gpp is also valid */
     {"3g2", "video/3gpp2"}, /* ^^^ */
-    {"7z", "application/x-7z-compressed"},
-    /* ========== custom types ========= */
-    {"php", "application/x-httpd-php"}
+    {"7z", "application/x-7z-compressed"}
 };
 
 const unsigned int types_amount = (sizeof(media) / sizeof(media[0]));
