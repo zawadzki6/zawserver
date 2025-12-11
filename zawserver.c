@@ -195,6 +195,16 @@ int main(int argc, char* argv[]) {
 	*strchr(file, ' ') = 0;
 	if (DEV) printf("errno: %d\n", errno);
 
+	if (strcmp(file, "") == 0) {
+	    dbg_print("peer probably requested '/'\n");
+	    print_log(3, "peer didn't request a file\n");
+	    print_log(0, "throwing 400 Bad Request\n");
+	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
+	    close(client_fd);
+	    print_log(1, "connection closed\n");
+	    continue;
+	}
+
 	if (strcmp(file, bin_name) == 0) {
 	    if (DEV) printf("file: %s\nbin_name: %s\n", file, bin_name);
 	    dbg_print("requested file is equal to server binary\n");
