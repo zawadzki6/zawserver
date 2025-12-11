@@ -25,19 +25,19 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-#define VERSION "infdev_2.2"
+#define VERSION "infdev_2.3"
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
-   DUMP prints variables on crash
-   DEV is to be used for extra debug logs (only in devel) 
+   DUMP prints variables on crash - deprecated, use DEBUG
+   DEV is to be used for extra debug logs (only in devel) - deprecated, use DEBUG
    HEAD displays headers */
 bool DEBUG = false;
 bool SILENT = false;
 bool DUMP = false;
 bool DEV = false;
 bool HEAD = true;
-bool RECV = false;
+
 
 /* ROADMAP ***
  basic GET functionality - done
@@ -63,17 +63,25 @@ FILE* fp = NULL;
 char buffer[1024] = {};
 int port = 8080;
 bool validPort = false;
-char* argvv[1]; /* for RECV */
+int validated;
 
 int main(int argc, char* argv[]) {
     signal(SIGSEGV, segfault_handler);
     signal(SIGINT, sigint_handler);
     signal(SIGPIPE, sigpipe_handler);
 
+    if (DEBUG) DEV = true; else DEV = false;
+
     if (DEV) printf("argc: %d\nargv[0]: %s\nargv[1]: %s\nargv[2]: %s\n", argc, argv[0], argv[1], argv[2]);
+    char bin_name2[256]; strcpy(bin_name2, argv[0]);
+    if (strrchr(argv[0], '/') != NULL) { strcpy(bin_name2, strchr(argv[0], '/') + 1); }
+    const char* bin_name = bin_name2;
+    if (DEV) printf("\nbin_name: %s\n", bin_name);
     
-    if (argv[1]) {
-	const char* argument = argv[1];
+    int i = 1;
+    while (i < argc) {
+    if (argv[i]) {
+	char* argument = argv[i];
 	if (strcmp(argument, "-s") == 0) { SILENT = true; dbg_print("silent mode enabled !!\n"); }
 	else if (strcmp(argument, "-d") == 0) { DEBUG = true; dbg_print("debug enabled !!\n"); }
 	else if (strcmp(argument, "-v") == 0) {
@@ -88,7 +96,6 @@ int main(int argc, char* argv[]) {
 	    print_log(2, "this is a warning\n");
 	    print_log(3, "this is an error\n");
 	    dbg_print("wow debug is here too\n");
-	    if (DEV) printf("hi there's also dev\n");
 
 	    return 0;
 	}
@@ -97,17 +104,15 @@ int main(int argc, char* argv[]) {
 	    return 0;
 	}
 	else {
-	    if (atoi(argv[1]) != 0) validPort = true;
+	    if (atoi(argv[i]) != 0) { validPort = true; validated = atoi(argv[i]); }
 	    if (!validPort) { print_log(3, "invalid argument\n"); return 4; }
 	}
-    }
+    } i++; }
     if (!SILENT) printf("\nThis software is provded \"as is\" with absolutely no waranty\n\n");
     printf("To quit press \x1b[32mCtrl+C\x1b[0m\n\n");
 
     if (validPort) {
-	const int port_fix = atoi(argv[1]);
-	dbg_print("argument is digits!!\n");
-	port = port_fix;
+	port = validated;
     }
      
     print_log(0, "using port ");
@@ -190,6 +195,18 @@ int main(int argc, char* argv[]) {
 	*strchr(file, ' ') = 0;
 	if (DEV) printf("errno: %d\n", errno);
 
+	if (strcmp(file, bin_name) == 0) {
+	    if (DEV) printf("file: %s\nbin_name: %s\n", file, bin_name);
+	    dbg_print("requested file is equal to server binary\n");
+
+	    print_log(3, "peer requested server's binary\n");
+	    print_log(0, "throwing 400 Bad Request\n");
+	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
+	    close(client_fd);
+	    print_log(1, "connection closed\n");
+	    continue;
+	}
+
 	struct stat path;
 	stat(file, &path);
 	if (!S_ISREG(path.st_mode)) {		/*  <- see inode(7) */
@@ -203,7 +220,7 @@ int main(int argc, char* argv[]) {
 	if (DEV) printf("errno: %d\n", errno);
 
 	 
-	char* ext = strrchr(file, '.') + 1 ;
+	char* ext = strrchr(file, '.') + 1;
 	if (strcmp(ext, "\0") == 0) { print_log(2, "extension is null\n"); ext = NULL; }
 	if (DEV) if (ext) printf("found extension: %s\n", ext);
 	if (ext) print_log(0, "found extension\n");
@@ -289,9 +306,10 @@ void sigint_handler(int s) {
 void segfault_handler(int s) {
     dbg_print("caught SIGSEGV\n");
     print_log(3, "error - segmentation fault\n");
-    if (RECV) main(1, argvv);
-    if (DUMP) dump();
-    quit(134);
+    if (DEBUG) dump();
+    if (fp != NULL) fclose(fp);
+    shutdown(sock, SHUT_RDWR);
+    close(client_fd);
     /* abort(); */
 }
 
@@ -314,9 +332,9 @@ void quit(int c) {
 }
 
 void sigpipe_handler(int s) {
-    print_log(3, "attempted to send data to an invalid client\n");
     dbg_print("caught SIGPIPE\n");
-    if (DEV) dump();
+    print_log(3, "attempted to send data to an invalid client\n");
+    if (DEBUG) dump();
     fclose(fp);
     close(opened_fd);
     close(client_fd);
@@ -350,3 +368,4 @@ const char* get_type(const char* ext) {
     }
     return media[0].type;
 }
+
