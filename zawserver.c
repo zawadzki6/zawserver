@@ -46,7 +46,8 @@ bool HEAD = true;
  config file
  more customisability
  logging rework
- POST requests - soon(tm) */
+ other request methods - soon(tm)
+ HTTPS - soon(tm) */
 
 void print_log(const unsigned short int t, const char* str);
 void dbg_print(const char* s);
@@ -69,8 +70,6 @@ int main(int argc, char* argv[]) {
     signal(SIGSEGV, segfault_handler);
     signal(SIGINT, sigint_handler);
     signal(SIGPIPE, sigpipe_handler);
-
-    if (DEBUG) DEV = true; else DEV = false;
 
     if (DEV) printf("argc: %d\nargv[0]: %s\nargv[1]: %s\nargv[2]: %s\n", argc, argv[0], argv[1], argv[2]);
     char bin_name2[256]; strcpy(bin_name2, argv[0]);
@@ -108,12 +107,12 @@ int main(int argc, char* argv[]) {
 	    if (!validPort) { print_log(3, "invalid argument\n"); return 4; }
 	}
     } i++; }
-    if (!SILENT) printf("\nThis software is provded \"as is\" with absolutely no waranty\n\n");
+    if (!SILENT) printf("\nThis software is provided \"as is\" with absolutely no waranty\n\n");
     printf("To quit press \x1b[32mCtrl+C\x1b[0m\n\n");
 
-    if (validPort) {
-	port = validated;
-    }
+    if (DEBUG) DEV = true; else DEV = false;
+
+    if (validPort) port = validated;
      
     print_log(0, "using port ");
     printf("%d\n", port);
@@ -134,12 +133,18 @@ int main(int argc, char* argv[]) {
     while (1) {
 	int client_fd = accept(sock, 0, 0);
 
-	socklen_t addr_len = sizeof(addr);
+    	/* socklen_t addr_len = sizeof(addr);
 	getpeername(client_fd, (struct sockaddr*)&addr, &addr_len);
 	struct sockaddr_in* peer = (struct sockaddr_in*)&addr;
 	struct in_addr peer_addr = peer->sin_addr;
 	char peer_name[INET_ADDRSTRLEN];
-	inet_ntop(AF_INET, &peer_addr, peer_name, INET_ADDRSTRLEN);
+	inet_ntop(AF_INET, &peer_addr, peer_name, INET_ADDRSTRLEN); */
+
+	/* rev 2 */
+	socklen_t addr_len = sizeof(addr);
+	getpeername(client_fd, (struct sockaddr*)&addr, &addr_len);
+	char peer_name[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, (struct in_addr*)&addr.sin_addr, peer_name, INET_ADDRSTRLEN);
 
 	print_log(0, "incoming request from ");
 	printf("%s\n", peer_name);
@@ -148,10 +153,6 @@ int main(int argc, char* argv[]) {
 	char buffer[1024] = {};
 	recv(client_fd, buffer, 1024, 0);
 
-	/* GET file.txt ... */
-	if (HEAD) { print_log(0, "recieved buffer\n"); printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", buffer); }
-	
-
 	if (DEV) printf("errno: %d\n", errno);
 	if (errno == 104) {
 	    print_log(0, "connection reset by peer\n");
@@ -159,6 +160,9 @@ int main(int argc, char* argv[]) {
 	    print_log(1, "connection closed\n");
 	    continue;
 	}
+
+	print_log(0, "recieved buffer\n");
+	if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", buffer);
 	
 	if (DEV) printf("errno: %d\n", errno);
 	if ((buffer[0] = 0)) {
@@ -205,6 +209,7 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
+	if (DEV) printf("file: %s\nbinary: %s\n", file, bin_name);
 	if (strcmp(file, bin_name) == 0) {
 	    if (DEV) printf("file: %s\nbin_name: %s\n", file, bin_name);
 	    dbg_print("requested file is equal to server binary\n");
@@ -246,7 +251,6 @@ int main(int argc, char* argv[]) {
 	    print_log(1, "connection closed\n");
 	    continue;
 	}
-
 
 	int opened_fd = open(file, O_RDONLY);
 	dbg_print("opened file descriptor\n");
@@ -293,7 +297,9 @@ int main(int argc, char* argv[]) {
 	print_log(0, "formed response header\n");
 	if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", header2);
 	send(client_fd, header2, strlen(header2), 0);
+	
 	print_log(1, "sent header\n");
+
 
 	print_log(0, "sending data now\n");
 	sendfile(client_fd, opened_fd, 0, length);
@@ -320,7 +326,7 @@ void segfault_handler(int s) {
     if (fp != NULL) fclose(fp);
     shutdown(sock, SHUT_RDWR);
     close(client_fd);
-    /* abort(); */
+    abort();
 }
 
 void dump() {
@@ -335,8 +341,9 @@ void dump() {
 void quit(int c) {
     print_log(0, "shutting down\n");
     if (fp != NULL) fclose(fp);
-    shutdown(sock, SHUT_RDWR);
+    close(opened_fd);
     close(client_fd);
+    shutdown(sock, SHUT_RDWR);
     print_log(1, "quitting\n");
     exit(c);
 }
@@ -345,16 +352,13 @@ void sigpipe_handler(int s) {
     dbg_print("caught SIGPIPE\n");
     print_log(3, "attempted to send data to an invalid client\n");
     if (DEBUG) dump();
-    fclose(fp);
+    if (fp != NULL) fclose(fp);
     close(opened_fd);
     close(client_fd);
     print_log(1, "cleaned up\n");
 }
 
-void sigterm_handler(int s) {
-    quit(2);
-}
-
+void sigterm_handler(int s) { quit(2); }
 
 void dbg_print(const char* log) { if (DEBUG) printf("[%s   DEBG   %s] %s", ANSI_COLOR_MAGENTA, ANSI_COLOR_RESET, log); }
 
