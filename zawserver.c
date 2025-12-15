@@ -25,7 +25,7 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-#define VERSION "infdev_2.3"
+#define VERSION "infdev_2.4"
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
