@@ -58,6 +58,8 @@ void sigpipe_handler(int s);
 void dump();
 void quit(int c);
 const char* get_type(const char* ext);
+const char* get_binary(char* argv[]);
+bool validate_string(char* str);
 
 int sock, client_fd, opened_fd;
 FILE* fp = NULL;
@@ -71,18 +73,16 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, sigint_handler);
     signal(SIGPIPE, sigpipe_handler);
 
+    if (DEBUG) DEV = true; else DEV = false;
+
     if (DEV) printf("argc: %d\nargv[0]: %s\nargv[1]: %s\nargv[2]: %s\n", argc, argv[0], argv[1], argv[2]);
-    char bin_name2[256]; strcpy(bin_name2, argv[0]);
-    if (strrchr(argv[0], '/') != NULL) { strcpy(bin_name2, strchr(argv[0], '/') + 1); }
-    const char* bin_name = bin_name2;
-    if (DEV) printf("\nbin_name: %s\n", bin_name);
-    
+
     int i = 1;
     while (i < argc) {
     if (argv[i]) {
 	char* argument = argv[i];
 	if (strcmp(argument, "-s") == 0) { SILENT = true; dbg_print("silent mode enabled !!\n"); }
-	else if (strcmp(argument, "-d") == 0) { DEBUG = true; dbg_print("debug enabled !!\n"); }
+	else if (strcmp(argument, "-d") == 0) { DEBUG= true, DEV = true; dbg_print("debug enabled !!\n"); }
 	else if (strcmp(argument, "-v") == 0) {
 	    printf("%sZAWServer%s %s\n", ANSI_COLOR_CYAN, ANSI_COLOR_RESET, VERSION); 
 	    printf("%s compiled on %s %s\n", __FILE__, __DATE__, __TIME__);
@@ -110,8 +110,7 @@ int main(int argc, char* argv[]) {
     if (!SILENT) printf("\nThis software is provided \"as is\" with absolutely no waranty\n\n");
     printf("To quit press \x1b[32mCtrl+C\x1b[0m\n\n");
 
-    if (DEBUG) DEV = true; else DEV = false;
-
+    
     if (validPort) port = validated;
      
     print_log(0, "using port ");
@@ -199,6 +198,16 @@ int main(int argc, char* argv[]) {
 	*strchr(file, ' ') = 0;
 	if (DEV) printf("errno: %d\n", errno);
 
+ 	if (!validate_string(file)) {
+	    dbg_print("string didn't get validated\n");
+	    print_log(3, "invalid file name\n");
+	    print_log(0, "throwing 400 Bad Request\n");
+	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
+	    close(client_fd);
+	    print_log(1, "connection closed\n");
+	    continue;
+	}   
+
 	if (strcmp(file, "") == 0) {
 	    dbg_print("peer probably requested '/'\n");
 	    print_log(3, "peer didn't request a file\n");
@@ -209,9 +218,9 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
-	if (DEV) printf("file: %s\nbinary: %s\n", file, bin_name);
-	if (strcmp(file, bin_name) == 0) {
-	    if (DEV) printf("file: %s\nbin_name: %s\n", file, bin_name);
+	if (DEV) printf("file: %s\nbinary: %s\n", file, get_binary(argv));
+	if (strcmp(file, get_binary(argv)) == 0) {
+	    if (DEV) printf("file: %s\nbin_name: %s\n", file, get_binary(argv));
 	    dbg_print("requested file is equal to server binary\n");
 
 	    print_log(3, "peer requested server's binary\n");
@@ -234,7 +243,6 @@ int main(int argc, char* argv[]) {
 	}
 	if (DEV) printf("errno: %d\n", errno);
 
-	 
 	char* ext = strrchr(file, '.') + 1;
 	if (strcmp(ext, "\0") == 0) { print_log(2, "extension is null\n"); ext = NULL; }
 	if (DEV) if (ext) printf("found extension: %s\n", ext);
@@ -383,3 +391,19 @@ const char* get_type(const char* ext) {
     return media[0].type;
 }
 
+const char* get_binary(char* argv[]) {
+    char bin_name2[256]; strcpy(bin_name2, argv[0]);
+    if (strrchr(argv[0], '/') != NULL) { strcpy(bin_name2, strchr(argv[0], '/') + 1); }
+    const char* bin_name = bin_name2;
+    if (DEV) printf("\nbin_name: %s\n", bin_name);
+
+    return bin_name;
+}
+
+bool validate_string(char* str) {
+    int i;
+    for (i = 0; i < strlen(str); i++)
+	if (!isalnum(str[i])) return false;
+
+    return true;
+}
