@@ -1,3 +1,4 @@
+#include <asm-generic/socket.h>
 #include <errno.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -25,7 +26,8 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-#define VERSION "infdev_2.4"
+/* *** alpha after infdev_3 (soon) *** */
+#define VERSION "infdev_2.5"
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
@@ -59,7 +61,8 @@ void dump();
 void quit(int c);
 const char* get_type(const char* ext);
 const char* get_binary(char* argv[]);
-bool validate_string(char* str);
+bool stralnum(char* str);
+bool strascii(char* str);
 
 int sock, client_fd, opened_fd;
 FILE* fp = NULL;
@@ -67,6 +70,7 @@ char buffer[1024] = {};
 int port = 8080;
 bool validPort = false;
 int validated;
+const int one = 1; /* yes */
 
 int main(int argc, char* argv[]) {
     signal(SIGSEGV, segfault_handler);
@@ -110,13 +114,13 @@ int main(int argc, char* argv[]) {
     if (!SILENT) printf("\nThis software is provided \"as is\" with absolutely no waranty\n\n");
     printf("To quit press \x1b[32mCtrl+C\x1b[0m\n\n");
 
-    
     if (validPort) port = validated;
      
     print_log(0, "using port ");
     printf("%d\n", port);
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(int));
 
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
@@ -125,6 +129,12 @@ int main(int argc, char* argv[]) {
 
     dbg_print("initialized socket\n");
     int b = bind(sock, (struct sockaddr*)&addr, sizeof(addr));
+    dbg_print("binding socket returned "); printf("%d, errno: %d\n", b, errno);
+
+    if (b != 0) {
+	print_log(3, "socket binding failed with code "); printf("%d\n", errno);
+	quit(-1);
+    }
 
     print_log(0, "starting server\n");
     listen(sock, 1);
@@ -163,8 +173,7 @@ int main(int argc, char* argv[]) {
 	print_log(0, "recieved buffer\n");
 	if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", buffer);
 	
-	if (DEV) printf("errno: %d\n", errno);
-	if ((buffer[0] = 0)) {
+	if (strcmp(buffer, "") == 0 || strcmp(buffer, "\0") == 0 || strcmp(buffer, " ") == 0) {
 	    print_log(2, "buffer empty\n");
 	    close(client_fd);
 	    print_log(1, "connection closed\n");
@@ -181,10 +190,21 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
+	if (!strascii(buffer)) {
+	    dbg_print("buffer is not ascii compliant\n");
+	    print_log(3, "buffer did not get validated\n");
+	    print_log(0, "throwing 400 Bad Request\n");
+	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
+	    close(client_fd);
+	    print_log(1, "connection closed\n");
+	    continue;
+	}
+	else dbg_print("OK string is ascii\n");
+
 	if (DEV) printf("errno: %d\n", errno);
 	/* according to man pages, strcnmp returns 0 if strings are equal
 	   so why the fuck is this oppositve here? */
-	if (strncmp(buffer, "GET", 4) == 0 || !isalnum(buffer[1])) {
+	if (strncmp(buffer, "GET", 4) == 0) { /* || !isalnum(buffer[1])) { */
 	    print_log(2, "request is not GET\n");
 	    print_log(0, "throwing 400 Bad Request\n");
 	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
@@ -193,23 +213,16 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
+
+
 	if (DEV) printf("errno: %d\n", errno);
 	char* file = buffer + 5;
 	*strchr(file, ' ') = 0;
 	if (DEV) printf("errno: %d\n", errno);
 
- 	if (!validate_string(file)) {
-	    dbg_print("string didn't get validated\n");
-	    print_log(3, "invalid file name\n");
-	    print_log(0, "throwing 400 Bad Request\n");
-	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
-	    close(client_fd);
-	    print_log(1, "connection closed\n");
-	    continue;
-	}   
-
-	if (strcmp(file, "") == 0) {
-	    dbg_print("peer probably requested '/'\n");
+	if (DEV) printf("file: %s\n", file);
+	if (file[0] == '\0') {
+	    dbg_print("peer requested '/'\n");
 	    print_log(3, "peer didn't request a file\n");
 	    print_log(0, "throwing 400 Bad Request\n");
 	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
@@ -217,6 +230,41 @@ int main(int argc, char* argv[]) {
 	    print_log(1, "connection closed\n");
 	    continue;
 	}
+
+	/*
+	char noext[strlen(file)];
+	strcpy(noext, file); 
+	*strchr(noext, '.') = 0;
+
+	if (DEV) printf("noext: %s\n", noext);
+ 	if (strcmp(noext, "\0") == 0 || !stralnum(noext)) {
+	    dbg_print("buffer didn't pass validation\n");
+	    print_log(3, "invalid file name\n");
+	    print_log(0, "throwing 400 Bad Request\n");
+	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
+	    close(client_fd);
+	    print_log(1, "connection closed\n");
+	    continue;
+	}
+	*/
+
+	char* ext = strrchr(file, '.') + 1;
+	if (DEV) printf("ext: %s\n", ext);
+	if (strcmp(ext, "\0") == 0) { print_log(2, "extension is null\n"); }
+	else if (DEV) if (ext) printf("found extension: %s\n", ext);
+	if (DEV) printf("errno: %d\n", errno);
+
+	if (strcmp(ext, "\0") != 0 && !stralnum(ext)) {
+	    dbg_print("file name didn't get validated\n");
+	    print_log(3, "invalid file name\n");
+	    print_log(0, "throwing 400 Bad Request\n");
+	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
+	    close(client_fd);
+	    print_log(1, "connection closed\n");
+	    continue;
+	}
+
+	if (ext) print_log(0, "found extension\n");
 
 	if (DEV) printf("file: %s\nbinary: %s\n", file, get_binary(argv));
 	if (strcmp(file, get_binary(argv)) == 0) {
@@ -231,6 +279,7 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
+	/* early file check */
 	struct stat path;
 	stat(file, &path);
 	if (!S_ISREG(path.st_mode)) {		/*  <- see inode(7) */
@@ -243,14 +292,14 @@ int main(int argc, char* argv[]) {
 	}
 	if (DEV) printf("errno: %d\n", errno);
 
-	char* ext = strrchr(file, '.') + 1;
-	if (strcmp(ext, "\0") == 0) { print_log(2, "extension is null\n"); ext = NULL; }
-	if (DEV) if (ext) printf("found extension: %s\n", ext);
-	if (ext) print_log(0, "found extension\n");
+
+
+	int opened_fd = open(file, O_RDONLY);
+	dbg_print("opened file descriptor\n");
 	if (DEV) printf("errno: %d\n", errno);
 
 	if (errno == 2) {
-	    dbg_print("we have stopped yet another segfault probably from an i/o error. let's return 404\n");
+	    dbg_print("couldn't open the file. returning 404\n");
 	    print_log(3, "i/o error\n");
 	    print_log(0, "throwing 404 Not Found\n");
 	    send(client_fd, "HTTP/1.1 404 Not Found\r\n", 24, 0);
@@ -259,10 +308,6 @@ int main(int argc, char* argv[]) {
 	    print_log(1, "connection closed\n");
 	    continue;
 	}
-
-	int opened_fd = open(file, O_RDONLY);
-	dbg_print("opened file descriptor\n");
-	if (DEV) printf("errno: %d\n", errno);
 	
 	errno = 0;
 	FILE* fp = fopen(file, "r");
@@ -282,7 +327,6 @@ int main(int argc, char* argv[]) {
 	    print_log(3, "file not found\n");
 	    send(client_fd, "HTTP/1.1 404 Not Found\r\n", 24, 0);
 	    print_log(1, "sent response (404 Not Found)\n");
-	    /* fclose(fp); */
 	    close(opened_fd);
 	    close(client_fd);
 	    print_log(0, "closed connection\n");
@@ -366,7 +410,7 @@ void sigpipe_handler(int s) {
     print_log(1, "cleaned up\n");
 }
 
-void sigterm_handler(int s) { quit(2); }
+void sigterm_handler(int s) { quit(0); }
 
 void dbg_print(const char* log) { if (DEBUG) printf("[%s   DEBG   %s] %s", ANSI_COLOR_MAGENTA, ANSI_COLOR_RESET, log); }
 
@@ -400,10 +444,21 @@ const char* get_binary(char* argv[]) {
     return bin_name;
 }
 
-bool validate_string(char* str) {
+bool stralnum(char* str) {
     int i;
     for (i = 0; i < strlen(str); i++)
 	if (!isalnum(str[i])) return false;
+
+    return true;
+}
+
+bool strascii(char* str) {
+    int i;
+    for (i = 0; i < strlen(str); i++)
+	if (!isascii(str[i])) {
+	    dbg_print("check failed at str["); printf("%d], '%c'\n", i, str[i]);
+	    return false;
+	}
 
     return true;
 }
