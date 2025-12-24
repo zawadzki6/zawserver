@@ -28,7 +28,7 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
 /* *** alpha after infdev_3 (soon) *** */
-#define VERSION "infdev_2.6"
+#define VERSION "infdev_2.6.1"
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
@@ -122,6 +122,7 @@ int main(int argc, char* argv[]) {
     addr.sin_addr.s_addr = 0;
 
     dbg_print("initialized socket\n");
+
     int b = bind(sock, (struct sockaddr*)&addr, sizeof(addr));
     if (DEBUG) { dbg_print("binding socket returned "); printf("%d, errno: %d\n", b, errno); }
 
@@ -197,8 +198,9 @@ int main(int argc, char* argv[]) {
 
 	if (DEV) printf("errno: %d\n", errno);
 	/* according to man pages, strcnmp returns 0 if strings are equal
-	   so why the fuck is this oppositve here? */
-	if (strncmp(buffer, "GET", 4) == 0) { /* || !isalnum(buffer[1])) { */
+	   so why the fuck is this oppositve here?
+	    EDIT: what the fuck */
+	if (strncmp(buffer, "GET", 3) != 0) { /* || !isalnum(buffer[1])) { */
 	    print_log(2, "request is not GET\n");
 	    print_log(0, "throwing 400 Bad Request\n");
 	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
