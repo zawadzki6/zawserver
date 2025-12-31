@@ -28,20 +28,20 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
 /* *** alpha after infdev_3 (soon) *** */
-#define VERSION "infdev_2.6.1"
+#define VERSION "infdev_2.7"
+
+extern const char* __progname;
+
+
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
-   DUMP prints variables on crash - deprecated, use DEBUG
    DEV is to be used for extra debug logs (only in devel) - deprecated, use DEBUG
    HEAD displays headers */
 bool DEBUG = false;
 bool SILENT = false;
-bool DUMP = false;
-bool DEV = false;
 bool HEAD = true;
 bool COLOR = true;
-
 
 /* ROADMAP ***
  basic GET functionality - done
@@ -49,7 +49,7 @@ bool COLOR = true;
  common redirects
  config file
  more customisability
- logging rework
+ logging rework - done
  other request methods - soon(tm)
  HTTPS - soon(tm) */
 
@@ -79,24 +79,30 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, sigint_handler);
     signal(SIGPIPE, sigpipe_handler);
 
-    if (DEBUG) DEV = true; else DEV = false;
-
-    if (DEV) printf("argc: %d\nargv[0]: %s\nargv[1]: %s\nargv[2]: %s\n", argc, argv[0], argv[1], argv[2]);
+    dbg_print("I am the one who debugs\n");
 
     int i = 1;
     while (i < argc) {
     if (argv[i]) {
 	char* argument = argv[i];
 	if (strcmp(argument, "-s") == 0) { SILENT = true; dbg_print("silent mode enabled !!\n"); }
-	else if (strcmp(argument, "-d") == 0) { DEBUG= true, DEV = true; dbg_print("debug enabled !!\n"); }
+	else if (strcmp(argument, "-d") == 0) { DEBUG= true; dbg_print("debug enabled !!\n"); }
 	else if (strcmp(argument, "-v") == 0) {
 	    printf("%sZAWServer%s %s\n", ANSI_COLOR_CYAN, ANSI_COLOR_RESET, VERSION); 
 	    printf("%s compiled on %s %s\n", __FILE__, __DATE__, __TIME__);
 	    return 0;
 	}
 	else if (strcmp(argument, "--nocolor") == 0) COLOR = false;
-	else if (strcmp(argument, "-h") == 0) {
-	    printf("valid arguments:\n[port]	self explanatory\n-h	this message\n-v      version\n--s      silent\n--nocolor      removes all colors from output\n");
+	else if (strcmp(argument, "--noheader") == 0) HEAD = false;
+	else if (strcmp(argument, "-h") == 0 || strcmp(argument, "--help") == 0) {
+	    printf("valid arguments:\n");
+	    printf(" -h, --help	this message\n");
+	    printf(" <port>         self explanatory\n");
+	    printf(" -d		debug\n");
+	    printf(" -s		silent\n");
+	    printf(" -v		version/build info\n");
+	    printf(" --nocolor	removes all colors from output\n");
+	    printf(" --noheader	don't display any headers\n");
 	    return 0;
 	}
 	else {
@@ -137,14 +143,6 @@ int main(int argc, char* argv[]) {
     while (1) {
 	int client_fd = accept(sock, 0, 0);
 
-    	/* socklen_t addr_len = sizeof(addr);
-	getpeername(client_fd, (struct sockaddr*)&addr, &addr_len);
-	struct sockaddr_in* peer = (struct sockaddr_in*)&addr;
-	struct in_addr peer_addr = peer->sin_addr;
-	char peer_name[INET_ADDRSTRLEN];
-	inet_ntop(AF_INET, &peer_addr, peer_name, INET_ADDRSTRLEN); */
-
-	/* rev 2 */
 	socklen_t addr_len = sizeof(addr);
 	getpeername(client_fd, (struct sockaddr*)&addr, &addr_len);
 	char peer_name[INET_ADDRSTRLEN];
@@ -157,7 +155,6 @@ int main(int argc, char* argv[]) {
 	char buffer[1024] = {};
 	recv(client_fd, buffer, 1024, 0);
 
-	if (DEV) printf("errno: %d\n", errno);
 	if (errno == 104) {
 	    print_log(0, "connection reset by peer\n");
 	    close(client_fd);
@@ -175,7 +172,6 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
-	if (DEV) printf("errno: %d\n", errno);
 	if (buffer[1023] > 0) {
 	    print_log(1, "buffer reached limit\n");
 	    send(client_fd, "HTTP/1.1 431 Request Header Fields Too Large\r\n", 46, 0);
@@ -194,9 +190,7 @@ int main(int argc, char* argv[]) {
 	    print_log(0, "connection closed\n");
 	    continue;
 	}
-	else dbg_print("OK string is ascii\n");
 
-	if (DEV) printf("errno: %d\n", errno);
 	/* according to man pages, strcnmp returns 0 if strings are equal
 	   so why the fuck is this oppositve here?
 	    EDIT: what the fuck */
@@ -211,13 +205,11 @@ int main(int argc, char* argv[]) {
 
 
 
-	if (DEV) printf("errno: %d\n", errno);
 	char* file = buffer + 5;
 	*strchr(file, ' ') = 0;
-	if (DEV) printf("errno: %d\n", errno);
+	dbg_print("request: "); if (DEBUG) printf("%s\n", file);
 
-	if (DEV) printf("file: %s\n", file);
-	if (file[0] == '\0') {
+    	if (file[0] == '\0') {
 	    dbg_print("peer requested '/'\n");
 	    print_log(2, "peer didn't request a file\n");
 	    print_log(0, "throwing 400 Bad Request\n");
@@ -227,28 +219,14 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
-	/*
-	char noext[strlen(file)];
-	strcpy(noext, file); 
-	*strchr(noext, '.') = 0;
 
-	if (DEV) printf("noext: %s\n", noext);
- 	if (strcmp(noext, "\0") == 0 || !stralnum(noext)) {
-	    dbg_print("buffer didn't pass validation\n");
-	    print_log(3, "invalid file name\n");
-	    print_log(0, "throwing 400 Bad Request\n");
-	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
-	    close(client_fd);
-	    print_log(1, "connection closed\n");
-	    continue;
-	}
-	*/
+	char* ext = "";
+	if (strchr(file, '.') != NULL) 
+	    ext = strrchr(file, '.') + 1;
 
-	char* ext = strrchr(file, '.') + 1;
-	if (DEV) printf("ext: %s\n", ext);
 	if (strcmp(ext, "\0") == 0) { print_log(1, "extension is null\n"); }
-	else if (DEV) if (ext) printf("found extension: %s\n", ext);
-	if (DEV) printf("errno: %d\n", errno);
+	else if (DEBUG) if (ext) printf("found extension: %s\n", ext);
+	if (DEBUG) { dbg_print(""); printf("errno: %d\n", errno); }
 
 	if (strcmp(ext, "\0") != 0 && !stralnum(ext)) {
 	    dbg_print("file name didn't get validated\n");
@@ -260,46 +238,54 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
-	if (ext) print_log(0, "found extension\n");
+	if (DEBUG) { dbg_print(""); printf("file: %s, binary: %s\n", file, __progname); }
+	if (strcmp(file, __progname) == 0) {
 
-	if (DEV) printf("file: %s\nbinary: %s\n", file, get_binary(argv));
-	if (strcmp(file, get_binary(argv)) == 0) {
-	    if (DEV) printf("file: %s\nbin_name: %s\n", file, get_binary(argv));
+	    /* thou shall not request the server's binary. peer will be executed by firing squad. */
 	    dbg_print("requested file is equal to server binary\n");
 
 	    print_log(2, "peer requested server's binary\n");
-	    print_log(0, "throwing 400 Bad Request\n");
-	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
+	    print_log(0, "throwing 403 Forbidden\n");
+	    send(client_fd, "HTTP/1.1 403 Forbidden\r\n", 24, 0);
 	    close(client_fd);
 	    print_log(0, "connection closed\n");
 	    continue;
 	}
-
-	/* early file check */
-	struct stat path;
-	stat(file, &path);
-	if (!S_ISREG(path.st_mode)) {		/*  <- see inode(7) */
-	    print_log(2, "peer didn't request a valid file\n");
-	    print_log(0, "throwing 400 Bad Request\n");
-	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
-	    close(client_fd);
-	    print_log(0, "connection closed\n");
-	    continue;
-	}
-	if (DEV) printf("errno: %d\n", errno);
-
 
 
 	int opened_fd = open(file, O_RDONLY);
 	dbg_print("opened file descriptor\n");
-	if (DEV) printf("errno: %d\n", errno);
+	if (DEBUG) { dbg_print(""); printf("errno: %d\n", errno); }
+
+	struct stat st;
+	stat(file, &st);
+	
+	if (!S_ISREG(st.st_mode)) {
+	    dbg_print("file is irregular, a directory or doesn't exist\n");
+	    print_log(2, "request has no valid file\n");
+	    print_log(0, "throwing 404 Not Found\n");
+	    send(client_fd, "HTTP/1.1 404 Not Found\r\n", 24, 0);
+	    close(client_fd);
+	    close(opened_fd);
+	    print_log(0, "connection closed\n");
+	    continue;
+	}
 
 	if (errno == 2) {
 	    dbg_print("couldn't open the file. returning 404\n");
 	    print_log(2, "i/o error\n");
 	    print_log(0, "throwing 404 Not Found\n");
 	    send(client_fd, "HTTP/1.1 404 Not Found\r\n", 24, 0);
-	    close(opened_fd);
+	    close(client_fd);
+	    print_log(0, "connection closed\n");
+	    continue;
+	}
+
+	if (access(file, R_OK) != 0) {
+	    dbg_print("access() returned non-zero value. errno is "); if (DEBUG) printf("%d\n", errno);
+	    print_log(2, "i/o error\n");
+	    print_log(0, "throwing 500 Internal Server Error\n");
+	    send(client_fd, "HTTP/1.1 500 Internal Server Error\r\n", 36, 0);
 	    close(client_fd);
 	    print_log(0, "connection closed\n");
 	    continue;
@@ -308,29 +294,15 @@ int main(int argc, char* argv[]) {
 	errno = 0;
 	FILE* fp = fopen(file, "r");
 	if (fp == NULL) {
-	    dbg_print("file is null!!\n");
+	    dbg_print("file is null, for some reason it could not be opened\n");
 	    print_log(2, "failed to open file\n");
 	    print_log(0, "throwing 500 Internal Server Error\n");
 	    send(client_fd, "HTTP/1.1 500 Internal Server Error\r\n", 36, 0);
-	    close(opened_fd);
-	    close(client_fd);
 	    print_log(0, "connection closed\n");
 	    continue;
 	}
 	dbg_print("opened file\n");
 	
-	if (errno != 0) {
-	    print_log(2, "file not found\n");
-	    send(client_fd, "HTTP/1.1 404 Not Found\r\n", 24, 0);
-	    print_log(0, "sent response (404 Not Found)\n");
-	    close(opened_fd);
-	    close(client_fd);
-	    print_log(0, "closed connection\n");
-	    continue;
-	} 
-
-	struct stat st;
-	stat(file, &st);
 	unsigned int length = st.st_size;
 
 	char guhhhh[16];
@@ -345,13 +317,14 @@ int main(int argc, char* argv[]) {
 	print_log(0, "formed response header\n");
 	if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", header2);
 	send(client_fd, header2, strlen(header2), 0);
-	
 	print_log(0, "sent header\n");
 
 
 	print_log(0, "sending data now\n");
-	sendfile(client_fd, opened_fd, 0, length);
+	errno = 0;
+	int c = sendfile(client_fd, opened_fd, 0, length);
 	print_log(0, "finished uploading\n");
+	if (DEBUG) { dbg_print("uploading returned "); printf("%d, errno: %d\n", c, errno); }
 
 	fclose(fp);
 	close(opened_fd);
@@ -414,17 +387,6 @@ void dbg_print(const char* log) {
     else printf("%ld DEBG %s", time(NULL), log);
 }
 
-/*
-void print_log(const unsigned short int t, const char* str) {
-    if (SILENT) return;
-    switch (t) {
-	case 0: printf("[%s   INFO   %s] %s", ANSI_COLOR_BLUE, ANSI_COLOR_RESET, str); break;
-	case 1: printf("[%s    OK    %s] %s", ANSI_COLOR_GREEN, ANSI_COLOR_RESET, str); break;
-	case 2: printf("[%s   WARN   %s] %s", ANSI_COLOR_YELLOW, ANSI_COLOR_RESET, str); break;
-	case 3:	printf("[%s   FAIL   %s] %s", ANSI_COLOR_RED, ANSI_COLOR_RESET, str); break;
-    }
-}
-*/
 
 void print_log(const unsigned short int t, const char* str) {
     if (SILENT) return;
@@ -455,11 +417,12 @@ const char* get_type(const char* ext) {
     return media[0].type;
 }
 
+/* --- deprecated --- use __progname stupid */
 const char* get_binary(char* argv[]) {
     char bin_name2[256]; strcpy(bin_name2, argv[0]);
     if (strrchr(argv[0], '/') != NULL) { strcpy(bin_name2, strchr(argv[0], '/') + 1); }
     const char* bin_name = bin_name2;
-    if (DEV) printf("\nbin_name: %s\n", bin_name);
+    if (DEBUG) {dbg_print(""); printf("\nbin_name: %s\n", bin_name); }
 
     return bin_name;
 }
