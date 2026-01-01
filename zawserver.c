@@ -28,11 +28,9 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
 /* *** alpha after infdev_3 (soon) *** */
-#define VERSION "infdev_2.7"
+#define VERSION "infdev_3"
 
 extern const char* __progname;
-
-
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
@@ -194,7 +192,8 @@ int main(int argc, char* argv[]) {
 	/* according to man pages, strcnmp returns 0 if strings are equal
 	   so why the fuck is this oppositve here?
 	    EDIT: what the fuck */
-	if (strncmp(buffer, "GET", 3) != 0) { /* || !isalnum(buffer[1])) { */
+	/*
+	if (strncmp(buffer, "GET", 3) != 0) {
 	    print_log(2, "request is not GET\n");
 	    print_log(0, "throwing 400 Bad Request\n");
 	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
@@ -202,10 +201,60 @@ int main(int argc, char* argv[]) {
 	    print_log(0, "connection closed\n");
 	    continue;
 	}
+	*/
+
+	bool req_HEAD = false;
+	if (strncmp(buffer, "GET", 3) != 0) {
+	    dbg_print("request is not GET, checking for other supported\n");
+	    if (strncmp(buffer, "HEAD", 4) == 0) {
+		print_log(0, "request is HEAD\n");
+		req_HEAD = true;
+	    }
+	    else if (strncmp(buffer, "OPTIONS", 7) == 0) {
+		print_log(0, "request is OPTIONS\n");
+		char options[1024] = "HTTP/1.1 204 No Content\nAllow: GET, HEAD, OPTIONS, TRACE\nServer: zawserver (";
+		strcat(options, VERSION);
+		strcat(options, ")\n\r\n");
+
+		if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", options);
+		send(client_fd, options, strlen(options), 0);
+		print_log(0, "sent respone\n");
+		close(client_fd);
+		print_log(0, "connection closed\n");
+		continue;
+		
+	    }
+	    else if (strncmp(buffer, "TRACE", 5) == 0) {
+		print_log(0, "request is TRACE\n");
+
+		char header[1024] = "HTTP/1.1 200 OK\nContent-Length: ";
+		char len[8] = {};
+		sprintf(len, "%d", (int)strlen(buffer));
+		strcat(header, len);
+		strcat(header, "\n\r\n");
+		strcat(header, buffer);
+
+		send(client_fd, header, strlen(header), 0);
+		print_log(0, "sent response\n");
+		continue;
+
+	    }
+	    else {
+		print_log(2, "could not get a valid request from buffer\n");
+		print_log(0, "throwing 400 Bad Request\n");
+		send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
+		close(client_fd);
+		print_log(0, "connection closed\n");
+		continue;
+	    }
+
+	}
+	else print_log(0, "request is GET\n");
 
 
 
 	char* file = buffer + 5;
+	if (req_HEAD) file = buffer + 6;
 	*strchr(file, ' ') = 0;
 	dbg_print("request: "); if (DEBUG) printf("%s\n", file);
 
@@ -319,12 +368,13 @@ int main(int argc, char* argv[]) {
 	send(client_fd, header2, strlen(header2), 0);
 	print_log(0, "sent header\n");
 
-
+	if (!req_HEAD) {
 	print_log(0, "sending data now\n");
 	errno = 0;
 	int c = sendfile(client_fd, opened_fd, 0, length);
 	print_log(0, "finished uploading\n");
 	if (DEBUG) { dbg_print("uploading returned "); printf("%d, errno: %d\n", c, errno); }
+	}
 
 	fclose(fp);
 	close(opened_fd);
