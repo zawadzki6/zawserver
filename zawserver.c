@@ -28,7 +28,7 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
 /* *** alpha after infdev_3 (soon) *** */
-#define VERSION "infdev_3"
+#define VERSION "infdev_3.0.1"
 
 extern const char* __progname;
 
@@ -189,20 +189,6 @@ int main(int argc, char* argv[]) {
 	    continue;
 	}
 
-	/* according to man pages, strcnmp returns 0 if strings are equal
-	   so why the fuck is this oppositve here?
-	    EDIT: what the fuck */
-	/*
-	if (strncmp(buffer, "GET", 3) != 0) {
-	    print_log(2, "request is not GET\n");
-	    print_log(0, "throwing 400 Bad Request\n");
-	    send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
-	    close(client_fd);
-	    print_log(0, "connection closed\n");
-	    continue;
-	}
-	*/
-
 	bool req_HEAD = false;
 	if (strncmp(buffer, "GET", 3) != 0) {
 	    dbg_print("request is not GET, checking for other supported\n");
@@ -212,7 +198,7 @@ int main(int argc, char* argv[]) {
 	    }
 	    else if (strncmp(buffer, "OPTIONS", 7) == 0) {
 		print_log(0, "request is OPTIONS\n");
-		char options[1024] = "HTTP/1.1 204 No Content\nAllow: GET, HEAD, OPTIONS, TRACE\nServer: zawserver (";
+		char options[1024] = "HTTP/1.1 200 OK\nAllow: GET, HEAD, OPTIONS, TRACE\nServer: zawserver (";
 		strcat(options, VERSION);
 		strcat(options, ")\n\r\n");
 
@@ -234,6 +220,7 @@ int main(int argc, char* argv[]) {
 		strcat(header, "\n\r\n");
 		strcat(header, buffer);
 
+		if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", header);
 		send(client_fd, header, strlen(header), 0);
 		print_log(0, "sent response\n");
 		continue;
