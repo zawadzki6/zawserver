@@ -1,7 +1,4 @@
 ## <p align="center">zawserver</p>
-zawserver
-=========
-
 Zawadzki's Anti-Windows Server - "zawserver" (written in lowercase) is a server for serving static web content through HTTP.
 
 [See it in action here](http://zaw-softworks.org/index.html)
