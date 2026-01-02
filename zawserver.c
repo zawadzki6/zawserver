@@ -28,7 +28,7 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
 /* *** alpha after infdev_3 (soon) *** */
-#define VERSION "infdev_3.0.2"
+#define VERSION "infdev_3"
 
 extern const char* __progname;
 
@@ -212,7 +212,7 @@ int main(int argc, char* argv[]) {
 	    }
 	    else if (strncmp(buffer, "OPTIONS", 7) == 0) {
 		print_log(0, "request is OPTIONS\n");
-		char options[1024] = "HTTP/1.1 200 OK\nAllow: GET, HEAD, OPTIONS, TRACE\nServer: zawserver (";
+		char options[1024] = "HTTP/1.1 204 No Content\nAllow: GET, HEAD, OPTIONS, TRACE\nServer: zawserver (";
 		strcat(options, VERSION);
 		strcat(options, ")\n\r\n");
 
@@ -234,7 +234,6 @@ int main(int argc, char* argv[]) {
 		strcat(header, "\n\r\n");
 		strcat(header, buffer);
 
-		if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", header);
 		send(client_fd, header, strlen(header), 0);
 		print_log(0, "sent response\n");
 		continue;
