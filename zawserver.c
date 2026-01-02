@@ -28,7 +28,7 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
 /* *** alpha after infdev_3 (soon) *** */
-#define VERSION "infdev_3.1"
+#define VERSION "infdev_3.1.1"
 
 extern const char* __progname;
 
@@ -223,6 +223,8 @@ int main(int argc, char* argv[]) {
 		if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", header);
 		send(client_fd, header, strlen(header), 0);
 		print_log(0, "sent response\n");
+		close(client_fd);
+		print_log(0, "connection closed\n");
 		continue;
 
 	    }
