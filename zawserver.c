@@ -28,7 +28,7 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
 /* *** alpha after infdev_3 (soon) *** */
-#define VERSION "infdev_3.0.1"
+#define VERSION "infdev_3.1"
 
 extern const char* __progname;
 
@@ -226,8 +226,17 @@ int main(int argc, char* argv[]) {
 		continue;
 
 	    }
+	    else if (strncmp(buffer, "POST", 4) == 0 || strncmp(buffer, "PUT", 3) == 0 || strncmp(buffer, "DELETE", 6) == 0 || strncmp(buffer, "CONNECT", 7) == 0 || strncmp(buffer, "PATCH", 5) == 0) {
+		print_log(2, "method was found, but is not supported\n");
+		print_log(0, "throwing 501 Not Implemented\n");
+		send(client_fd, "HTTP/1.1 501 Not Implemented\r\n", 30, 0);
+		close(client_fd);
+		print_log(0, "connection closed\n");
+		continue;
+	    }
 	    else {
-		print_log(2, "could not get a valid request from buffer\n");
+		/* it's unlikely this will ever happen but it's here just in case */
+		print_log(2, "no valid request method from buffer\n");
 		print_log(0, "throwing 400 Bad Request\n");
 		send(client_fd, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
 		close(client_fd);
@@ -339,26 +348,25 @@ int main(int argc, char* argv[]) {
 	}
 	dbg_print("opened file\n");
 	
-	unsigned int length = st.st_size;
 
-	char guhhhh[16];
-	sprintf(guhhhh, "%d", length);
+	char length[16];
+	sprintf(length, "%d", (int)st.st_size);
 
-	char header2[] = "HTTP/1.1 200 OK\r\n""Content-Type: ";
-	strcat(header2, get_type(ext));
-	strcat(header2, "\r\n""Content-Length: ");
-	strcat(header2, guhhhh);
-	strcat(header2, "\r\n""Connection: close\r\n""\r\n");
+	char header[] = "HTTP/1.1 200 OK\nContent-Type: ";
+	strcat(header, get_type(ext));
+	strcat(header, "\nContent-Length: ");
+	strcat(header, length);
+	strcat(header, "\nConnection: close\r\n\r\n");
 
 	print_log(0, "formed response header\n");
-	if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", header2);
-	send(client_fd, header2, strlen(header2), 0);
+	if (HEAD) printf("--- BEGIN HTTP HEADER ---\n%s\n---- END HTTP HEADER ----\n", header);
+	send(client_fd, header, strlen(header), 0);
 	print_log(0, "sent header\n");
 
 	if (!req_HEAD) {
 	print_log(0, "sending data now\n");
 	errno = 0;
-	int c = sendfile(client_fd, opened_fd, 0, length);
+	int c = sendfile(client_fd, opened_fd, 0, st.st_size);
 	print_log(0, "finished uploading\n");
 	if (DEBUG) { dbg_print("uploading returned "); printf("%d, errno: %d\n", c, errno); }
 	}
