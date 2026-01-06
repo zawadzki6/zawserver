@@ -27,19 +27,24 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-/* *** alpha after infdev_3 (soon) *** */
-#define VERSION "infdev_3.1.1"
+#define VERSION "alpha-0.1"
 
 extern const char* __progname;
 
 /* DEBUG enables debug prints
    SILENT hides all logs (excluding debug)
    DEV is to be used for extra debug logs (only in devel) - deprecated, use DEBUG
-   HEAD displays headers */
+   HEAD displays headers
+   REDIRECTS enables redirects support
+   BLOCKS enables managing blocked connections */
 bool DEBUG = false;
 bool SILENT = false;
 bool HEAD = true;
 bool COLOR = true;
+bool REDIRECTS = true;
+bool BLOCKS = true;
+
+#define BLOCKS_FILE "blocks.conf"
 
 /* ROADMAP ***
  basic GET functionality - done
@@ -63,6 +68,9 @@ const char* get_type(const char* ext);
 const char* get_binary(char* argv[]);
 bool stralnum(char* str);
 bool strascii(char* str);
+int chkblock(char* ua, char* ip);
+bool blocker(char* ua, char* ip, int* peer);
+void genblocklist();
 
 int sock, client_fd, opened_fd;
 FILE* fp = NULL;
@@ -71,6 +79,16 @@ int port = 8080;
 bool validPort = false;
 int validated;
 const int one = 1; /* yes */
+const char conf_file[] = "server.conf";
+bool cfg_found = false;
+char* cfg_buffer;
+bool restart = false, frk = false, colors = true;
+
+struct redirect {
+    char* source;
+    char* destination;
+};
+
 
 int main(int argc, char* argv[]) {
     signal(SIGSEGV, segfault_handler);
@@ -92,6 +110,8 @@ int main(int argc, char* argv[]) {
 	}
 	else if (strcmp(argument, "--nocolor") == 0) COLOR = false;
 	else if (strcmp(argument, "--noheader") == 0) HEAD = false;
+	else if (strcmp(argument, "--noblock") == 0) BLOCKS = false;
+	else if (strcmp(argument, "--genblock") == 0) { genblocklist(); return 0; }
 	else if (strcmp(argument, "-h") == 0 || strcmp(argument, "--help") == 0) {
 	    printf("valid arguments:\n");
 	    printf(" -h, --help	this message\n");
@@ -101,6 +121,8 @@ int main(int argc, char* argv[]) {
 	    printf(" -v		version/build info\n");
 	    printf(" --nocolor	removes all colors from output\n");
 	    printf(" --noheader	don't display any headers\n");
+	    printf(" --noblock      disables all blocking rules\n");
+	    printf(" --genblock     override blocklist with default (create if doesn't exist)\n");
 	    return 0;
 	}
 	else {
@@ -187,6 +209,22 @@ int main(int argc, char* argv[]) {
 	    close(client_fd);
 	    print_log(0, "connection closed\n");
 	    continue;
+	}
+
+	char* peer_ua = strstr(buffer, "User-Agent: ");
+	if (peer_ua != NULL) {
+	    peer_ua = peer_ua+12;
+	    *strchr(peer_ua, '\r') = 0;
+	    dbg_print("grabbed useragent\n");
+	    dbg_print("peer useragent: ");
+	    if (DEBUG) printf("%s\n", peer_ua);
+	}
+
+	if (BLOCKS) {
+	    if (blocker(peer_ua, peer_name, &client_fd)) {
+		print_log(0, "connection closed\n");
+		continue;
+	    }
 	}
 
 	bool req_HEAD = false;
@@ -491,4 +529,184 @@ bool strascii(char* str) {
 	}
 
     return true;
+}
+
+int chkblock(char* ua, char* ip) {
+    int fd = open(BLOCKS_FILE, O_RDONLY);
+    if (fd == -1) {
+	print_log(1, "blocklist file is invalid\n");
+	return -1;
+    }
+
+    struct stat st;
+    stat(BLOCKS_FILE, &st);
+    if (!S_ISREG(st.st_mode)) {
+	print_log(1, "blocklist file exists, but is wrong type\n");
+	return -1;
+    } else {
+	FILE* blocks = fopen(BLOCKS_FILE, "r");
+	if (blocks == NULL) {
+	    print_log(1, "failed to open blocklist file. possibly missing permissions\n");
+	    return -1;
+	}
+
+	char* buffer = malloc(st.st_size);
+	if (buffer == NULL || errno == ENOMEM) {
+	    print_log(2, "out of memory\n");
+	    close(fd);
+	    fclose(blocks);
+	    abort();
+	}
+
+	fgets(buffer, st.st_size, blocks);
+	while (strncmp(buffer, "#", 1) == 0)
+	    fgets(buffer, st.st_size, blocks);
+
+	int response;
+	if (strncmp(buffer, "response: ", 10) == 0) {
+	    dbg_print("response: ");
+	    if (DEBUG) printf("%s\n", buffer+10);
+
+	    if (strncmp(buffer+10, "drop", 4) == 0) response = 1;
+	    else if (strncmp(buffer+10, "400", 3) == 0) response = 400;
+	    else if (strncmp(buffer+10, "401", 3) == 0) response = 401;
+	    else if (strncmp(buffer+10, "403", 3) == 0) response = 403;
+	    else if (strncmp(buffer+10, "404", 3) == 0) response = 404;
+	    else if (strncmp(buffer+10, "410", 3) == 0) response = 410;
+	    else if (strncmp(buffer+10, "418", 3) == 0) response = 418;
+	    else if (strncmp(buffer+10, "451", 3) == 0) response = 451;
+	} else {
+	    print_log(2, "failed parsing list - reponse must appear before the list\n");
+	    close(fd);
+	    fclose(blocks);
+	    free(buffer);
+	    return -1;
+	}
+
+	bool whitelist;
+	do fgets(buffer, st.st_size, blocks);
+	while (strncmp(buffer, "whitelist: ", 11) == 0);
+
+	if (*buffer == EOF) {
+	    print_log(2, "failed parsing list - 'whitelist' must appear after 'response' and before the list\n");
+	    close(fd);
+	    fclose(blocks);
+	    free(buffer);
+	    return -1;
+	} else {
+	    if (strncmp(buffer+11, "1", 1) == 0) whitelist = true;
+	    else if (strncmp(buffer+11, "0", 1) == 0) whitelist = false;
+	    else {
+		dbg_print("whitelist: ");
+		if (DEBUG) printf("%s\n", buffer+11);
+		print_log(2, "failed parsing list - 'whitelist' can equal only 1 or 0\n");
+		close(fd);
+		fclose(blocks);
+		free(buffer);
+		return -1;
+	    }
+	}
+
+	
+
+	if (whitelist) print_log(0, "whitelist mode is enabled on blocklist\n");
+
+	/* save cpu cycles by using a constant instead of getting the length every time */
+	const size_t ua_len = strlen(ua), ip_len = strlen(ip);
+
+	while (fgets(buffer, st.st_size, blocks)) {
+	    if (*buffer == EOF) {
+		dbg_print("blocklist is valid, but there are no blocks defined\n");
+		close(fd);
+		fclose(blocks);
+		free(buffer);
+		return 0;
+	    }
+	    if (whitelist) {
+		    if (strncmp(buffer, ua, ua_len) == 0 || strncmp(buffer, ip, ip_len) == 0) {
+			close(fd);
+			fclose(blocks);
+			free(buffer);
+			return 0;
+		    }
+		    return response;
+	    } else {
+		if ((strncmp(buffer, ua, ua_len) == 0) || strncmp(buffer, ip, ip_len) == 0) {
+		    close(fd);
+		    fclose(blocks);
+		    free(buffer);
+		    return response;
+		}
+	    }
+	}
+	close(fd);
+	fclose(blocks);
+	free(buffer);
+    }
+    
+    return 0;
+}
+
+bool blocker(char* ua, char* ip, int* peer) {
+    int response = chkblock(ua, ip);
+
+    if (response == 0) {
+	return false;
+    } else if (response == 1) {
+	print_log(0, "peer is in blocklist and the request is configured to be dropped\n");
+	close(*peer);
+	return true;
+    } else print_log(1, "peer was found to be in the blocklist\n");
+
+    errno = 0;
+    switch (response) {
+	case 400:
+	    print_log(0, "throwing 400 Bad Request\n");
+	    send(*peer, "HTTP/1.1 400 Bad Request\r\n", 26, 0);
+	    break;
+	case 401:
+	    print_log(0, "throwing 401 Unauthorized\n");
+	    send(*peer, "HTTP/1.1 401 Unauthorized\r\n", 27, 0);
+	    break;
+	case 403:
+	    print_log(0, "throwing 403 Forbidden\n");
+	    send(*peer, "HTTP/1.1 403 Forbidden\r\n", 24, 0);
+	    break;
+	case 404:
+	    print_log(0, "throwing 404 Not Found\n");
+	    send(*peer, "HTTP/1.1 404 Not Found\r\n", 24, 0);
+	    break;
+	case 410:
+	    print_log(0, "throwing 410 Gone\n");
+	    send(*peer, "HTTP/1.1 410 Gone\r\n", 19, 0);
+	    break;
+	case 418:
+	    print_log(0, "throwing 418 I'm a Teapot\n");
+	    send(*peer, "HTTP/1.1 418 I'm a Teapot\r\n", 27, 0);
+	    break;
+	case 451:
+	    print_log(0, "throwing 451 Unavailable for Legal Reasons\n");
+	    send(*peer, "HTTP/1.1 451 Unavailable for Legal Reasons\r\n", 44, 0);
+	    break;
+	case 1:
+	    print_log(0, "dropping connection\n");
+	    break;
+    }
+
+    dbg_print("errno: ");
+    if (DEBUG) printf("%d\n", errno);
+
+    close(*peer);
+
+    return true;
+}
+
+void genblocklist() {
+    const char* defaultconf = "# lines starting with '#' are ignored\n# available responses: drop, 400, 401, 403, 404, 410, 418, 451\nresponse: 418\nwhitelist: 0\n\ncurl/8.17.0\n";
+
+    FILE* new = fopen(BLOCKS_FILE, "w");
+    fputs(defaultconf, new);
+    print_log(0, "new file should be located in the directory\n");
+
+    fclose(new);
 }

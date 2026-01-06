@@ -1,12 +1,13 @@
-typedef struct {
+struct mimes {
     char ext[256];
     char type[256];
-} list;
+};
 
+/* TODO: custom user types 
+   EDIT: scrapped - anyone who needs more types will be fine with editing them here */
 
-/* TODO: custom user types */
 /* this list defines common media types according to https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types/Common_types */
-const list media[] = {
+const struct mimes media[] = {
     {"", "application/octet-stream"},
     {"aac", "audio/aac"},
     {"abw", "application/x-abiworld"},
