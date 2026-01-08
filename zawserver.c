@@ -27,7 +27,7 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-#define VERSION "alpha-0.1"
+#define VERSION "alpha-0.1.1"
 
 extern const char* __progname;
 
@@ -221,6 +221,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	if (BLOCKS) {
+	    print_log(0, "checking blocklist\n");
 	    if (blocker(peer_ua, peer_name, &client_fd)) {
 		print_log(0, "connection closed\n");
 		continue;
@@ -532,6 +533,12 @@ bool strascii(char* str) {
 }
 
 int chkblock(char* ua, char* ip) {
+
+    if (ua == NULL || ip == NULL) {
+	print_log(2, "at least one argument was null\n");
+	return -1;
+    }
+
     int fd = open(BLOCKS_FILE, O_RDONLY);
     if (fd == -1) {
 	print_log(1, "blocklist file is invalid\n");
@@ -650,13 +657,17 @@ int chkblock(char* ua, char* ip) {
 bool blocker(char* ua, char* ip, int* peer) {
     int response = chkblock(ua, ip);
 
-    if (response == 0) {
+    if (response == -1) {
+	print_log(2, "blocklist check returned error\n");
 	return false;
-    } else if (response == 1) {
+    } else if (response == 0)
+	return false;
+    else if (response == 1) {
 	print_log(0, "peer is in blocklist and the request is configured to be dropped\n");
 	close(*peer);
 	return true;
-    } else print_log(1, "peer was found to be in the blocklist\n");
+    } else
+	print_log(1, "peer was found to be in the blocklist\n");
 
     errno = 0;
     switch (response) {
