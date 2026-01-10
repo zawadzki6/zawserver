@@ -27,7 +27,7 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-#define VERSION "alpha-0.1.1"
+#define VERSION "alpha-0.1.2"
 
 extern const char* __progname;
 
@@ -84,6 +84,9 @@ bool cfg_found = false;
 char* cfg_buffer;
 bool restart = false, frk = false, colors = true;
 
+/* if this is true handle all signals again */
+bool handled = false;
+
 struct redirect {
     char* source;
     char* destination;
@@ -94,6 +97,7 @@ int main(int argc, char* argv[]) {
     signal(SIGSEGV, segfault_handler);
     signal(SIGINT, sigint_handler);
     signal(SIGPIPE, sigpipe_handler);
+    handled = true;
 
     dbg_print("I am the one who debugs\n");
 
@@ -161,6 +165,13 @@ int main(int argc, char* argv[]) {
     listen(sock, 1);
 
     while (1) {
+
+	if (!handled) {
+	    signal(SIGSEGV, segfault_handler);
+	    signal(SIGINT, sigint_handler);
+	    signal(SIGPIPE, sigpipe_handler);
+	    handled = true;
+	}
 	int client_fd = accept(sock, 0, 0);
 
 	socklen_t addr_len = sizeof(addr);
@@ -456,6 +467,7 @@ void quit(int c) {
 }
 
 void sigpipe_handler(int s) {
+    handled = false;
     dbg_print("caught SIGPIPE\n");
     print_log(2, "attempted to send data to an invalid client\n");
     if (DEBUG) dump();
