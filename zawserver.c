@@ -27,7 +27,7 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
-#define VERSION "alpha-0.1.2"
+#define VERSION "alpha-0.1.3"
 
 extern const char* __progname;
 
